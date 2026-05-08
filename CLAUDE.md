@@ -30,7 +30,7 @@ rcan-py/
 │   ├── test_registry.py    # RegistryClient tests (mocked HTTP)
 │   ├── test_uri.py         # RobotURI parsing tests
 │   └── ...
-├── pyproject.toml          # version = "0.6.0"
+├── pyproject.toml          # name = "rcan", version = "3.4.0"
 └── CHANGELOG.md
 ```
 
@@ -39,9 +39,9 @@ rcan-py/
 ```python
 import rcan
 
-rcan.__version__       # "0.6.0"
-rcan.SPEC_VERSION      # "1.6.1"  — tracks current stable spec version
-rcan.__spec_version__  # "1.6.1"  — alias
+rcan.__version__       # "3.4.0"
+rcan.SPEC_VERSION      # "3.2"  — tracks current stable spec version
+rcan.__spec_version__  # "3.2"  — alias
 ```
 
 SPEC_VERSION is defined in `rcan/version.py` — always keep in sync with `rcan-spec` `package.json` version field. Both `__init__.py` and `message.py` re-export it.
