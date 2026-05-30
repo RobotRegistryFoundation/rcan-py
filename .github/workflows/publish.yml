@@ -36,15 +36,21 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      # Job-level permissions replace the workflow default, so re-declare
+      # contents:write for the `gh release create` step below.
+      contents: write
+      # Required for PyPI trusted publishing (OIDC). No PYPI_TOKEN secret needed.
+      id-token: write
     steps:
       - uses: actions/download-artifact@v4  # pinning deferred — no SHA provided
         with:
           name: dist
           path: dist/
       - name: Publish to PyPI
+        # Authenticates via OIDC trusted publishing — requires a trusted
+        # publisher configured for `rcan` in PyPI project settings.
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
 
       - name: Determine tag
         id: tag
