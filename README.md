@@ -179,3 +179,7 @@ Spec discussions: [github.com/RobotRegistryFoundation/rcan-spec/issues](https://
 ## License
 
 MIT
+
+---
+
+> **Stewarded by the [Robot Registry Foundation](https://github.com/RobotRegistryFoundation).** RCAN is an open standard; issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
