@@ -59,14 +59,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "${{ steps.tag.outputs.tag }}" --repo continuonai/rcan-py >/dev/null 2>&1; then
+          if ! gh release view "${{ steps.tag.outputs.tag }}" --repo RobotRegistryFoundation/rcan-py >/dev/null 2>&1; then
             gh release create "${{ steps.tag.outputs.tag }}" \
-              --repo continuonai/rcan-py \
+              --repo RobotRegistryFoundation/rcan-py \
               --title "rcan-py ${{ steps.tag.outputs.tag }}" \
               --generate-notes
           fi
 
-      - uses: continuonai/rcan-spec/.github/actions/emit-version-tuple@v3.2.3
+      - uses: RobotRegistryFoundation/rcan-spec/.github/actions/emit-version-tuple@v3.2.3
         with:
           project: rcan-py
           ran: ${{ secrets.RCAN_PY_RELEASE_RAN }}
@@ -99,14 +99,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "${{ steps.tag.outputs.tag }}" --repo continuonai/rcan-py >/dev/null 2>&1; then
+          if ! gh release view "${{ steps.tag.outputs.tag }}" --repo RobotRegistryFoundation/rcan-py >/dev/null 2>&1; then
             gh release create "${{ steps.tag.outputs.tag }}" \
-              --repo continuonai/rcan-py \
+              --repo RobotRegistryFoundation/rcan-py \
               --title "rcan-py ${{ steps.tag.outputs.tag }}" \
               --generate-notes
           fi
 
-      - uses: continuonai/rcan-spec/.github/actions/emit-version-tuple@v3.2.3
+      - uses: RobotRegistryFoundation/rcan-spec/.github/actions/emit-version-tuple@v3.2.3
         with:
           project: rcan-py
           ran: ${{ secrets.RCAN_PY_RELEASE_RAN }}
