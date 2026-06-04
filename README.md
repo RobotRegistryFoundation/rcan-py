@@ -4,7 +4,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/rcan.svg)](https://pypi.org/project/rcan/)
 [![RCAN Spec](https://img.shields.io/badge/RCAN-live%20matrix-blue)](https://rcan.dev/compatibility)
-[![Tests](https://github.com/continuonai/rcan-py/actions/workflows/ci.yml/badge.svg)](https://github.com/continuonai/rcan-py/actions)
+[![Tests](https://github.com/RobotRegistryFoundation/rcan-py/actions/workflows/ci.yml/badge.svg)](https://github.com/RobotRegistryFoundation/rcan-py/actions)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/rcan/)
 
@@ -17,8 +17,8 @@ This repo is the **Python SDK** layer — the library any Python planner, gatewa
 | **Declaration** | [ROBOT.md](https://github.com/RobotRegistryFoundation/robot-md) | The file a robot ships at its root. YAML frontmatter + markdown prose. Declares identity, capabilities, safety gates. Spec + Python CLI. |
 | **Agent bridge** | [robot-md-mcp](https://github.com/RobotRegistryFoundation/robot-md-mcp) | MCP server that exposes a `ROBOT.md` to Claude Code, Claude Desktop, Cursor, Zed, Gemini CLI — any MCP-aware agent. |
 | **Wire protocol** | [RCAN](https://rcan.dev/spec/) | How robots, gateways, and planners talk. Signed envelopes, LoA enforcement, PQC crypto. Think HTTP for robots. |
-| **Python SDK** ← *this* | [rcan-py](https://github.com/continuonai/rcan-py) | `pip install rcan` — `RCANMessage`, `RobotURI`, `ConfidenceGate`, `HiTLGate`, `AuditChain`, `RegistryClient`. |
-| **TypeScript SDK** | [rcan-ts](https://github.com/continuonai/rcan-ts) | `npm install rcan-ts` — same API surface for Node + browser. |
+| **Python SDK** ← *this* | [rcan-py](https://github.com/RobotRegistryFoundation/rcan-py) | `pip install rcan` — `RCANMessage`, `RobotURI`, `ConfidenceGate`, `HiTLGate`, `AuditChain`, `RegistryClient`. |
+| **TypeScript SDK** | [rcan-ts](https://github.com/RobotRegistryFoundation/rcan-ts) | `npm install rcan-ts` — same API surface for Node + browser. |
 | **Registry** | [Robot Registry Foundation](https://robotregistryfoundation.org) | Permanent RRN identities. Public resolver at `/r/<rrn>`. Like ICANN for robots. |
 | **Reference runtime** | [OpenCastor](https://github.com/craigm26/OpenCastor) | Open-source robot runtime — connects LLM brains to hardware bodies. One implementation of RCAN. |
 
@@ -162,8 +162,8 @@ Covered sections: §1 Robot URI · §2 RBAC · §3 Message Format · §5 Authent
 | Package | Version | Purpose |
 |---|---|---|
 | **rcan-py** (this) | v2.0.0 | Python SDK |
-| [rcan-ts](https://github.com/continuonai/rcan-ts) | v2.0.0 | TypeScript SDK |
-| [rcan-spec](https://github.com/continuonai/rcan-spec) | v3.0 | Protocol spec |
+| [rcan-ts](https://github.com/RobotRegistryFoundation/rcan-ts) | v2.0.0 | TypeScript SDK |
+| [rcan-spec](https://github.com/RobotRegistryFoundation/rcan-spec) | v3.0 | Protocol spec |
 | [ROBOT.md](https://robotmd.dev) | v0.1.3 | Single-file robot manifest |
 | [OpenCastor](https://github.com/craigm26/OpenCastor) | v2026.3.17.1 | Robot runtime (reference impl) |
 | [RRF](https://robotregistryfoundation.org) | v1.6.0 | Robot identity registry |
@@ -172,9 +172,9 @@ Covered sections: §1 Robot URI · §2 RBAC · §3 Message Format · §5 Authent
 
 ## Contributing
 
-Issues and PRs welcome at [github.com/continuonai/rcan-py](https://github.com/continuonai/rcan-py).
+Issues and PRs welcome at [github.com/RobotRegistryFoundation/rcan-py](https://github.com/RobotRegistryFoundation/rcan-py).
 
-Spec discussions: [github.com/continuonai/rcan-spec/issues](https://github.com/continuonai/rcan-spec/issues)
+Spec discussions: [github.com/RobotRegistryFoundation/rcan-spec/issues](https://github.com/RobotRegistryFoundation/rcan-spec/issues)
 
 ## License
 
