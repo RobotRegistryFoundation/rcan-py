@@ -36,6 +36,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      id-token: write   # OIDC: PyPI Trusted Publishing (no PYPI_TOKEN needed)
+      contents: write   # later steps: gh release create + emit-version-tuple
     steps:
       - uses: actions/download-artifact@v4  # pinning deferred — no SHA provided
         with:
@@ -43,8 +46,7 @@ jobs:
           path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
+        # Trusted Publishing: OIDC token is used automatically; no password.
 
       - name: Determine tag
         id: tag
