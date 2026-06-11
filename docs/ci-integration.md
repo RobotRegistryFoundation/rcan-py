@@ -4,7 +4,7 @@
 
 ```yaml
 - name: Validate RCAN configs
-  uses: continuonai/rcan-py/.github/actions/validate-rcan@main
+  uses: RobotRegistryFoundation/rcan-py/.github/actions/validate-rcan@main
   with:
     level: "2"
 ```
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: continuonai/rcan-py/.github/actions/validate-rcan@main
+      - uses: RobotRegistryFoundation/rcan-py/.github/actions/validate-rcan@main
         with:
           level: "1"
 ```
@@ -30,7 +30,7 @@ jobs:
 
 ```yaml
 repos:
-  - repo: https://github.com/continuonai/rcan-py
+  - repo: https://github.com/RobotRegistryFoundation/rcan-py
     rev: v0.1.0
     hooks:
       - id: rcan-validate-config

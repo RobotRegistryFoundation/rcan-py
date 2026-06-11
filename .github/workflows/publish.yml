@@ -36,6 +36,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      id-token: write   # OIDC: PyPI Trusted Publishing (no PYPI_TOKEN needed)
+      contents: write   # later steps: gh release create + emit-version-tuple
     steps:
       - uses: actions/download-artifact@v4  # pinning deferred — no SHA provided
         with:
@@ -43,8 +46,7 @@ jobs:
           path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
+        # Trusted Publishing: OIDC token is used automatically; no password.
 
       - name: Determine tag
         id: tag
@@ -57,14 +59,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "${{ steps.tag.outputs.tag }}" --repo continuonai/rcan-py >/dev/null 2>&1; then
+          if ! gh release view "${{ steps.tag.outputs.tag }}" --repo RobotRegistryFoundation/rcan-py >/dev/null 2>&1; then
             gh release create "${{ steps.tag.outputs.tag }}" \
-              --repo continuonai/rcan-py \
+              --repo RobotRegistryFoundation/rcan-py \
               --title "rcan-py ${{ steps.tag.outputs.tag }}" \
               --generate-notes
           fi
 
-      - uses: continuonai/rcan-spec/.github/actions/emit-version-tuple@v3.2.3
+      - uses: RobotRegistryFoundation/rcan-spec/.github/actions/emit-version-tuple@v3.2.3
         with:
           project: rcan-py
           ran: ${{ secrets.RCAN_PY_RELEASE_RAN }}
@@ -97,14 +99,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "${{ steps.tag.outputs.tag }}" --repo continuonai/rcan-py >/dev/null 2>&1; then
+          if ! gh release view "${{ steps.tag.outputs.tag }}" --repo RobotRegistryFoundation/rcan-py >/dev/null 2>&1; then
             gh release create "${{ steps.tag.outputs.tag }}" \
-              --repo continuonai/rcan-py \
+              --repo RobotRegistryFoundation/rcan-py \
               --title "rcan-py ${{ steps.tag.outputs.tag }}" \
               --generate-notes
           fi
 
-      - uses: continuonai/rcan-spec/.github/actions/emit-version-tuple@v3.2.3
+      - uses: RobotRegistryFoundation/rcan-spec/.github/actions/emit-version-tuple@v3.2.3
         with:
           project: rcan-py
           ran: ${{ secrets.RCAN_PY_RELEASE_RAN }}
