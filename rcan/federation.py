@@ -24,6 +24,13 @@ log = logging.getLogger(__name__)
 # TTL for trust anchor cache entries: 24 hours
 TRUST_ANCHOR_TTL_S: float = 86_400.0
 
+# Commands that stop a robot. These — and only these — are exempt from the
+# cross-registry trust checks in :func:`validate_cross_registry_command`
+# (P66 invariant). The exemption covers stopping, never starting: a message
+# *type* such as SAFETY is deliberately not a member, because a SAFETY-typed
+# RESUME must not smuggle a start command through a stop exemption.
+STOP_VERBS: frozenset[str] = frozenset({"ESTOP", "E_STOP", "EMERGENCY_STOP", "STOP"})
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -329,10 +336,24 @@ def validate_cross_registry_command(
     """Validate a command that originated from a foreign registry.
 
     Rules:
-    - **ESTOP is always allowed** (P66 invariant — never blocked).
+    - **Stop verbs are always allowed** (P66 invariant — never blocked).
+      The exempt set is :data:`STOP_VERBS`; it contains only commands that
+      stop a robot, not message types such as ``SAFETY``, so a resume
+      cannot ride in on a stop exemption.
     - Cross-registry commands require LoA ≥ 2.
     - Source registry JWT must be valid (if present).
-    - Local consent record must exist (checked via ``params["consent_id"]``).
+    - Local consent record must exist (checked via ``params["consent_id"]``);
+      a cross-registry command without one is refused.
+
+    The stop exemption is also a denial-of-service primitive, and an
+    implementer should size their deployment knowing it: a command in
+    :data:`STOP_VERBS` skips replay prevention, the LoA check, the source
+    registry JWT check, the consent check and revocation, so any party that
+    can put a message on the wire can stop the robot, repeatedly, without
+    authenticating. That is the deliberate trade — local safety wins over
+    authentication, a stop is never refused — but it means availability of
+    the robot is not protected by this function. Rate limiting, transport
+    authentication or physical access control have to carry that load.
 
     Args:
         msg:            Incoming :class:`~rcan.message.RCANMessage`.
@@ -342,9 +363,9 @@ def validate_cross_registry_command(
     Returns:
         ``(valid: bool, reason: str)`` — reason is ``"ok"`` on success.
     """
-    # P66 invariant: ESTOP is NEVER blocked by federation checks
-    if msg.cmd.upper() in {"ESTOP", "E_STOP", "EMERGENCY_STOP", "SAFETY"}:
-        log.debug("ESTOP bypasses cross-registry trust check (P66 invariant)")
+    # P66 invariant: a stop is NEVER blocked by federation checks
+    if msg.cmd.upper() in STOP_VERBS:
+        log.debug("Stop verb bypasses cross-registry trust check (P66 invariant)")
         return True, "ESTOP always allowed"
 
     # LoA check
@@ -371,10 +392,7 @@ def validate_cross_registry_command(
         else None
     )
     if not consent_id:
-        log.warning(
-            "Cross-registry command missing consent_id in params; "
-            "allowing with warning (application layer must enforce consent)"
-        )
+        return False, "Cross-registry command missing consent_id"
 
     return True, "ok"
 
@@ -387,5 +405,6 @@ __all__ = [
     "TrustAnchorCache",
     "make_federation_sync",
     "validate_cross_registry_command",
+    "STOP_VERBS",
     "TRUST_ANCHOR_TTL_S",
 ]

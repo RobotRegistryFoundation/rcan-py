@@ -1,3 +1,30 @@
+## [3.5.0] — 2026-09-12
+
+### Changed
+
+- **Behaviour change (fail direction).** `rcan.federation.validate_cross_registry_command`
+  now refuses a cross-registry command whose params carry no `consent_id`
+  (or `consent_ref`), returning
+  `(False, "Cross-registry command missing consent_id")`. Previously it logged a
+  warning and returned `(True, "ok")`, which contradicted the function's own
+  documented rule that a local consent record must exist. Callers that relied on
+  the application layer enforcing consent after the fact will now see refusals at
+  this call instead.
+- The P66 stop exemption is now the module-level constant
+  `rcan.federation.STOP_VERBS = frozenset({"ESTOP", "E_STOP", "EMERGENCY_STOP", "STOP"})`
+  and no longer contains the bare string `SAFETY`. The exemption covers stopping
+  verbs only, so a start command (for example a RESUME) carried as a SAFETY-typed
+  message can no longer bypass the LoA, source-registry JWT and consent checks.
+  The stop path itself is unchanged: ESTOP/E_STOP/EMERGENCY_STOP/STOP remain
+  unrefusable, and `STOP` is newly exempt.
+
+### Documentation
+
+- `validate_cross_registry_command`'s docstring now states plainly that the stop
+  exemption is also a denial-of-service primitive: a stop verb skips replay
+  prevention, LoA, JWT, consent and revocation, so an unauthenticated remote
+  message can stop a robot. Availability is not protected by this function.
+
 ## [3.4.1] — 2026-05-09
 
 ### Fixed

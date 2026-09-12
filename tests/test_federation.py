@@ -7,6 +7,7 @@ import json
 import time
 
 from rcan.federation import (
+    STOP_VERBS,
     FederationSyncPayload,
     FederationSyncType,
     RegistryIdentity,
@@ -311,12 +312,70 @@ class TestValidateCrossRegistryCommand:
         assert "estop" in reason.lower() or "always" in reason.lower()
 
     def test_estop_variants(self):
-        """All ESTOP command name variants must bypass checks."""
+        """Every stop verb must bypass checks."""
         cache = TrustAnchorCache()
-        for cmd in ["ESTOP", "E_STOP", "EMERGENCY_STOP", "SAFETY"]:
+        for cmd in sorted(STOP_VERBS):
             msg = self._make_msg(cmd=cmd, loa=1)
             valid, _ = validate_cross_registry_command(msg, REGISTRY_A, cache)
             assert valid, f"Expected {cmd} to bypass trust checks"
+
+    def test_stop_verbs_exclude_message_types(self):
+        """The exemption covers stopping verbs only, not the SAFETY type."""
+        assert "SAFETY" not in STOP_VERBS
+        assert STOP_VERBS == frozenset({"ESTOP", "E_STOP", "EMERGENCY_STOP", "STOP"})
+
+    def test_unauthenticated_estop_with_nothing_still_allowed(self):
+        """An ESTOP with no LoA, no JWT and no consent record is still allowed."""
+        cache = TrustAnchorCache()
+        msg = RCANMessage(
+            cmd="ESTOP",
+            target="rcan://rcan.dev/acme/bot/v1/unit-001",
+        )
+        assert msg.loa is None
+        assert not msg.signature
+        assert not (msg.params or {}).get("consent_id")
+        valid, reason = validate_cross_registry_command(msg, REGISTRY_A, cache)
+        assert valid
+        assert "always" in reason.lower()
+
+    def test_safety_typed_resume_is_refused(self):
+        """A RESUME carried as a SAFETY-typed message does not get the exemption."""
+        cache = TrustAnchorCache()
+        msg = RCANMessage(
+            cmd="RESUME",
+            target="rcan://rcan.dev/acme/bot/v1/unit-001",
+            params={"type": "SAFETY"},
+            loa=2,
+        )
+        valid, reason = validate_cross_registry_command(msg, REGISTRY_A, cache)
+        assert not valid
+        assert "consent" in reason.lower()
+
+    def test_missing_consent_id_refused(self):
+        """A cross-registry command with no consent_id is refused, not allowed."""
+        cache = TrustAnchorCache()
+        msg = RCANMessage(
+            cmd="move_forward",
+            target="rcan://rcan.dev/acme/bot/v1/unit-001",
+            params={},
+            loa=2,
+        )
+        valid, reason = validate_cross_registry_command(msg, REGISTRY_A, cache)
+        assert not valid
+        assert reason == "Cross-registry command missing consent_id"
+
+    def test_consent_ref_is_accepted(self):
+        """consent_ref remains an accepted alias for consent_id."""
+        cache = TrustAnchorCache()
+        msg = RCANMessage(
+            cmd="move_forward",
+            target="rcan://rcan.dev/acme/bot/v1/unit-001",
+            params={"consent_ref": "consent-abc"},
+            loa=2,
+        )
+        valid, reason = validate_cross_registry_command(msg, REGISTRY_A, cache)
+        assert valid
+        assert reason == "ok"
 
     def test_requires_loa_2(self):
         """Non-ESTOP commands require LoA ≥ 2."""
