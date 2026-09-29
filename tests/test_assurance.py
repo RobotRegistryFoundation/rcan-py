@@ -314,3 +314,20 @@ def test_bool_is_not_treated_as_a_speed() -> None:
     c = clone(CHAIN)
     c[4]["applied"]["linear_mps"] = True
     assert "STOP_WITH_MOTION" not in codes(replay_against_envelope(c, ENVELOPE))
+
+
+def test_top_level_exports() -> None:
+    import rcan
+
+    for name in (
+        "ASSURANCE_LEVELS",
+        "GENESIS_PREV",
+        "append_record",
+        "audit_authority",
+        "envelope_hash",
+        "record_hash",
+        "replay_against_envelope",
+        "verify_chain",
+    ):
+        assert name in rcan.__all__
+        assert getattr(rcan, name) is getattr(__import__("rcan.assurance").assurance, name)

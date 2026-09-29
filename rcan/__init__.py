@@ -68,6 +68,19 @@ from rcan.compliance import (
 from rcan.encoding import canonical_json
 from rcan.hybrid import sign_body, verify_body
 
+# v3.6 — Appendix C Physical Assurance Profile (informative). Types
+# (GateDecision, Envelope, Finding, Decision) live in rcan.assurance.
+from rcan.assurance import (
+    ASSURANCE_LEVELS,
+    GENESIS_PREV,
+    append_record,
+    audit_authority,
+    envelope_hash,
+    record_hash,
+    replay_against_envelope,
+    verify_chain,
+)
+
 from rcan.address import RobotURI
 from rcan.manifest import ManifestInfo, from_manifest
 from rcan.audit import CommitmentRecord
@@ -297,6 +310,15 @@ __all__ = [
     "canonical_json",
     "sign_body",
     "verify_body",
+    # v3.6 — Appendix C physical assurance (informative)
+    "ASSURANCE_LEVELS",
+    "GENESIS_PREV",
+    "append_record",
+    "audit_authority",
+    "envelope_hash",
+    "record_hash",
+    "replay_against_envelope",
+    "verify_chain",
     # v3.1 spec-domain constants
     "ART13_COVERAGE",
     "VALID_SEVERITIES",
