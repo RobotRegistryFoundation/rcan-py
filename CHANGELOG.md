@@ -1,3 +1,33 @@
+## [3.6.0] — 2026-09-29
+
+### Added
+
+- `MessageType.AUTHORIZE = 45`. Spec §16.4 requires an AUTHORIZE message but the canonical table never numbered it; 45 is the next free value (RobotRegistryFoundation/rcan-spec#221). Additive: no existing value changes.
+
+- `rcan.assurance`: helpers for RCAN Appendix C, the Physical Assurance Profile
+  (informative, optional; rcan-spec PR #221, not yet merged). Python port of the
+  rcan-spec reference verifier `scripts/assurance/evidence-chain.ts`, with the
+  same hashing and finding codes:
+  - `GateDecision` and `Envelope` TypedDicts, the `Decision` literal
+    (`allow | clamp | reject | stop`), `Finding`, `ASSURANCE_LEVELS`
+    (`A1`, `A2`, `A3`) and `GENESIS_PREV`.
+  - `envelope_hash`, `record_hash` and `append_record`, built on
+    `rcan.encoding.canonical_json`.
+  - `verify_chain(chain, expected_head=None)` (EV-08: `BAD_GENESIS`, `SEQ_GAP`,
+    `PREV_MISMATCH`, `HASH_MISMATCH`, `HEAD_MISMATCH`). Removal of records from
+    the end of a chain is only detected against an anchored `expected_head`.
+  - `audit_authority` (EV-07 log half: `NO_PRINCIPAL`, `NO_AUTHORITY`).
+  - `replay_against_envelope` (`ENVELOPE_MISMATCH`, `REJECT_APPLIED`,
+    `STOP_WITH_MOTION`, `SPEED_EXCEEDED`, `TURN_EXCEEDED`, `OUTSIDE_KEEP_IN`,
+    `INSIDE_KEEP_OUT`, and `UNCHECKED_FIELDS` for fields it does not judge).
+  - The functions and constants are also exported from `rcan`.
+- Tests in `tests/test_assurance.py` with fixtures copied from rcan-spec. They
+  recompute every fixture record hash and the envelope hash produced by the
+  TypeScript reference, as a cross-language parity check.
+
+These helpers verify evidence, not robots. Physical assurance levels A1-A3 are
+independent of RCAN conformance levels L1-L4. Conformance is not certification.
+
 ## [3.5.0] — 2026-09-12
 
 ### Changed

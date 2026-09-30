@@ -157,6 +157,51 @@ Implements [the RCAN protocol](https://rcan.dev/compatibility) — 587 tests, 0 
 
 Covered sections: §1 Robot URI · §2 RBAC · §3 Message Format · §5 Authentication · §5.3 QoS · §6 Safety Invariants · §8.3 Replay Prevention · §8.4 Clock Sync · §8.5 Sender Type · §8.6 Key Lifecycle · §8.7 Level of Assurance · §9 Capabilities · §11 Behavior Scripts · §12 Command Delegation · §13 Revocation · §14 Offline Mode · §16 AI Accountability · §17 Distributed Registry · §18 Federation · §19 Constrained Transport · §21 Registry Integration
 
+## Physical assurance (RCAN Appendix C, informative)
+
+`rcan.assurance` ports the reference verifier from RCAN Appendix C, the
+Physical Assurance Profile. The appendix is informative and these helpers are
+optional: nothing in RCAN requires them, and using them changes no conformance
+level. The appendix is proposed in
+[rcan-spec#221](https://github.com/RobotRegistryFoundation/rcan-spec/pull/221)
+and has not been merged.
+
+```python
+import json
+from rcan.assurance import verify_chain, audit_authority, replay_against_envelope
+
+chain = json.load(open("gate-decisions.json"))   # list of gate_decision records
+envelope = json.load(open("envelope.json"))
+
+findings = [
+    *verify_chain(chain, expected_head=None),    # pass an anchored head if you hold one
+    *audit_authority(chain, envelope),
+    *replay_against_envelope(chain, envelope),
+]
+for f in findings:
+    print(f.seq, f.code, f.detail)
+```
+
+What these helpers do and do not tell you:
+
+- **They verify evidence, not robots.** They check that a `gate_decision` log
+  is internally consistent, that executed authority-gated commands name a
+  principal and an authority, and that applied commands sit inside the declared
+  envelope. A passing chain says nothing about whether the machine behaved as
+  logged.
+- Without an anchored head, `verify_chain` cannot detect records removed from
+  the end of a chain. Pass `expected_head` when you hold the last hash from
+  somewhere the log writer cannot rewrite.
+- `replay_against_envelope` judges only `linear_mps`, `angular_radps` and a 2D
+  `target`. Any other applied field is reported as `UNCHECKED_FIELDS`, never
+  silently passed.
+- Physical assurance levels A1 to A3 are a separate axis from RCAN protocol
+  conformance levels L1 to L4. An L3 robot can be A1, and neither level implies
+  the other. An A-level is self-declared unless third-party evidence
+  accompanies it.
+
+Conformance is not certification.
+
 ## Ecosystem
 
 | Package | Version | Purpose |
