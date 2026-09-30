@@ -109,6 +109,9 @@ class MessageType(IntEnum):
     FIRMWARE_ATTESTATION = 43  # robot → RRF: publish signed firmware manifest
     SBOM_UPDATE = 44  # robot → RRF: publish updated CycloneDX SBOM
 
+    # HiTL authorization — v3.3 (45)
+    AUTHORIZE = 45  # approve or deny a PENDING_AUTH (spec §16.4)
+
 
 # ---------------------------------------------------------------------------
 # SenderType enum — GAP-08: Cloud Relay Identity

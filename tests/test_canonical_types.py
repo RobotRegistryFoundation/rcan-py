@@ -54,6 +54,8 @@ CANONICAL_TABLE = {
     "AUTHORITY_RESPONSE": 42,
     "FIRMWARE_ATTESTATION": 43,
     "SBOM_UPDATE": 44,
+    # HiTL authorization — v3.3 (45)
+    "AUTHORIZE": 45,
 }
 
 
@@ -85,7 +87,7 @@ def test_no_duplicate_values():
 
 
 def test_canonical_count():
-    """MessageType should have exactly 44 members (v2.1)."""
-    assert len(MessageType) == 44, (
-        f"Expected 44 MessageType members, got {len(MessageType)}"
+    """MessageType should have exactly 45 members (v3.3: AUTHORIZE = 45)."""
+    assert len(MessageType) == 45, (
+        f"Expected 45 MessageType members, got {len(MessageType)}"
     )

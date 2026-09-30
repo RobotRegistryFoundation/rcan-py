@@ -2,6 +2,8 @@
 
 ### Added
 
+- `MessageType.AUTHORIZE = 45`. Spec §16.4 requires an AUTHORIZE message but the canonical table never numbered it; 45 is the next free value (RobotRegistryFoundation/rcan-spec#221). Additive: no existing value changes.
+
 - `rcan.assurance`: helpers for RCAN Appendix C, the Physical Assurance Profile
   (informative, optional; rcan-spec PR #221, not yet merged). Python port of the
   rcan-spec reference verifier `scripts/assurance/evidence-chain.ts`, with the
