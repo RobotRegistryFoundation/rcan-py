@@ -60,3 +60,47 @@ def test_canonical_json_returns_bytes():
     """Return type MUST be bytes, not str — downstream hashes/signs it directly."""
     result = canonical_json({"a": 1})
     assert isinstance(result, bytes)
+
+
+def test_canonical_json_fixture_error_cases():
+    """Inputs with no canonical form (NaN, Infinity, unpaired surrogates) MUST raise."""
+    from rcan.exceptions import RCANEncodingError
+
+    fixture = json.loads(FIXTURE.read_text())
+    assert fixture["error_cases"], "fixture has no error_cases"
+    for case in fixture["error_cases"]:
+        with pytest.raises(RCANEncodingError) as info:
+            canonical_json(json.loads(case["input_json"]))
+        assert info.value.code == case["expected_error"], case["name"]
+
+
+def test_canonical_json_keys_sort_by_utf16_code_units():
+    """U+1F600 is the pair D83D DE00, which sorts before U+E000 (code-point order puts it after)."""
+    out = canonical_json({"": 1, "\U0001F600": 2})
+    assert out == '{"\U0001F600":2,"":1}'.encode("utf-8")
+
+
+def test_canonical_json_numbers_are_ecmascript_form():
+    out = canonical_json({"n": [1e21, 1e-7, 1e16, 0.000001, 0.00005, 1.5e-10, -0.0, 50.0, 123.456]})
+    assert out == b'{"n":[1e+21,1e-7,10000000000000000,0.000001,0.00005,1.5e-10,0,50,123.456]}'
+
+
+def test_canonical_json_ints_are_binary64():
+    """JavaScript reads every number as binary64, so Python ints are rounded the same way."""
+    assert canonical_json({"n": [2**53 + 1, -(2**53 + 1)]}) == b'{"n":[9007199254740992,-9007199254740992]}'
+
+
+def test_canonical_json_non_finite_and_surrogates_raise():
+    from rcan.exceptions import RCANEncodingError
+
+    for bad in ({"x": float("nan")}, {"x": [float("inf")]}, {"x": 10**400}, {"x": "\ud800"}, {"\udc00": 1}):
+        with pytest.raises(RCANEncodingError):
+            canonical_json(bad)
+    # Also a ValueError, like json.dumps(..., allow_nan=False).
+    with pytest.raises(ValueError):
+        canonical_json({"x": float("inf")})
+
+
+def test_canonical_json_rejects_non_string_keys():
+    with pytest.raises(TypeError):
+        canonical_json({1: "a"})
