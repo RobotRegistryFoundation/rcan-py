@@ -1,3 +1,29 @@
+## [Unreleased]
+
+### Changed
+
+- `canonical_json` now writes RFC 8785 canonical JSON, as rcan-spec
+  `audit-bundle-v1.md` claims and as the reference verifier and rcan-ts write
+  it (proposed spec text: RobotRegistryFoundation/rcan-spec#223, #224):
+  - Members sort by UTF-16 code units instead of code points. The two differ
+    only for names that mix characters above U+FFFF with U+E000–U+FFFF.
+  - Numbers are binary64 values written as ECMAScript writes them:
+    `1e-7` not `1e-07`, `0.00005` not `5e-05`, `1e+21` not
+    `1000000000000000000000`. Ints beyond 2**53 are rounded to the nearest
+    binary64 value, as every JavaScript reader rounds them. Whole-number
+    floats still come out as integers.
+  - NaN, Infinity (including an int too large for binary64) and strings or
+    keys with unpaired surrogates raise the new `RCANEncodingError`
+    (`code` `"non_finite_number"` or `"invalid_string"`; also a
+    `ValueError`), where `Infinity` used to be written (not JSON) and a
+    surrogate raised `UnicodeEncodeError`.
+  - Keys must be strings (as documented); other keys raise `TypeError`.
+- Hashes and signatures change only for values that hit one of these cases;
+  for them, rcan-py's bytes now match the reference verifier's and
+  rcan-ts's.
+- `tests/fixtures/canonical-json-v1.json` follows rcan-spec#224 (new vectors
+  and `error_cases`).
+
 ## [3.6.0] — 2026-09-29
 
 ### Added
