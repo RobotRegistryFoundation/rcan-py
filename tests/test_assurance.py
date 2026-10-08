@@ -331,3 +331,21 @@ def test_top_level_exports() -> None:
     ):
         assert name in rcan.__all__
         assert getattr(rcan, name) is getattr(__import__("rcan.assurance").assurance, name)
+
+
+# ── Parity with the TypeScript reference (two cases the port used to get wrong) ──
+
+
+def test_reject_without_applied_member_is_flagged_like_the_reference():
+    """Absent is not null: the reference flags it (undefined !== null)."""
+    c = clone(CHAIN)
+    rej = next(r for r in c if r["decision"] == "reject")
+    del rej["applied"]
+    assert "REJECT_APPLIED" in codes(replay_against_envelope(c, ENVELOPE))
+
+
+def test_authority_that_is_not_an_object_gates_nothing():
+    """The reference reads envelope.authority?.required_for; a list has none."""
+    c = [dict(clone(CHAIN[0]), authority=None)]
+    assert audit_authority(c, {**ENVELOPE, "authority": ["motion"]}) == []
+    assert audit_authority(c, {**ENVELOPE, "authority": "motion"}) == []

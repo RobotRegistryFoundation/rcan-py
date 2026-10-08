@@ -237,7 +237,11 @@ def audit_authority(
     command kind is read from ``cmd.kind``; a command without a kind is treated
     as ``"motion"``, the conservative reading.
     """
-    gated = set((envelope.get("authority") or {}).get("required_for") or [])
+    # Like the reference's envelope.authority?.required_for: an authority that is
+    # not an object (a list, a string) gates nothing instead of raising.
+    authority = envelope.get("authority")
+    required_for = authority.get("required_for") if isinstance(authority, Mapping) else None
+    gated = set(required_for or [])
     findings: list[Finding] = []
     for rec in chain:
         if rec.get("decision") not in ("allow", "clamp"):
@@ -290,7 +294,9 @@ def replay_against_envelope(
                 Finding(seq, "ENVELOPE_MISMATCH", "record was decided under a different envelope")
             )
         if rec.get("decision") == "reject":
-            if rec.get("applied") is not None:
+            # A missing applied member is not the null that reject requires
+            # (the reference checks rec.applied !== null, and undefined fails it).
+            if "applied" not in rec or rec["applied"] is not None:
                 findings.append(Finding(seq, "REJECT_APPLIED", "reject must apply nothing"))
             continue
         applied = rec.get("applied")
