@@ -437,6 +437,17 @@ def test_unknown_decision_is_flagged_not_judged_as_allow() -> None:
     assert _replay_codes(_at(0, decision=["allow"])) == ["UNKNOWN_DECISION"]
 
 
+def test_unknown_decision_detail_reads_like_the_reference() -> None:
+    """The reference writes JSON.stringify(rec.decision): null is null, absent is undefined."""
+
+    def detail(chain: list[dict[str, Any]]) -> str:
+        return next(f.detail for f in replay_against_envelope(chain, ENVELOPE) if f.code == "UNKNOWN_DECISION")
+
+    assert detail(_at(0, decision=None)) == "decision null is not allow, clamp, reject or stop"
+    assert detail(_at(0, drop=("decision",))) == "decision undefined is not allow, clamp, reject or stop"
+    assert detail(_at(0, decision={"z": 1, "a": 2})) == 'decision {"z":1,"a":2} is not allow, clamp, reject or stop'
+
+
 def _reenvelope(motion: dict[str, Any], workspace: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     env = {
         **ENVELOPE,

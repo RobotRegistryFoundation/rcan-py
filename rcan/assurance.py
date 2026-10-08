@@ -27,6 +27,7 @@ certification.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Optional, Sequence, TypedDict
@@ -338,7 +339,11 @@ def replay_against_envelope(
             )
         if not (isinstance(decision, str) and decision in DECISIONS):
             findings.append(
-                Finding(seq, "UNKNOWN_DECISION", f"decision {_js(decision)} is not allow, clamp, reject or stop")
+                Finding(
+                    seq,
+                    "UNKNOWN_DECISION",
+                    f"decision {_stringify_member(rec, 'decision')} is not allow, clamp, reject or stop",
+                )
             )
             continue
         applied = rec.get("applied")
@@ -410,6 +415,18 @@ def replay_against_envelope(
 def _is_number(x: Any) -> bool:
     """JavaScript ``typeof x === "number"``, excluding Python bools."""
     return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _stringify_member(rec: Mapping[str, Any], key: str) -> str:
+    """``JSON.stringify(rec[key])`` as the reference writes it into a detail.
+
+    ``undefined`` when the member is absent and ``null`` when it is null;
+    object members keep their order (unlike :func:`_js`, which writes
+    canonical JSON).
+    """
+    if key not in rec:
+        return "undefined"
+    return json.dumps(rec[key], ensure_ascii=False, separators=(",", ":"))
 
 
 def _finite(x: Any) -> bool:
