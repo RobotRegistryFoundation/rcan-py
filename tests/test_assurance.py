@@ -307,7 +307,7 @@ def test_unchecked_fields_are_reported_not_silently_passed() -> None:
     found = replay_against_envelope(c, ENVELOPE)
     unchecked = [f for f in found if f.code == "UNCHECKED_FIELDS"]
     detail = "applied.joint_torque_nm is not judged by this reference replay"
-    assert unchecked == [Finding(None, "UNCHECKED_FIELDS", detail)]
+    assert unchecked == [Finding(None, "UNCHECKED_FIELDS", detail, field="joint_torque_nm")]
 
 
 def test_bool_is_not_treated_as_a_speed() -> None:
@@ -331,3 +331,158 @@ def test_top_level_exports() -> None:
     ):
         assert name in rcan.__all__
         assert getattr(rcan, name) is getattr(__import__("rcan.assurance").assurance, name)
+
+
+# ── Parity with the TypeScript reference (two cases the port used to get wrong) ──
+
+
+def test_reject_without_applied_member_is_flagged_like_the_reference():
+    """Absent is not null: the reference flags it (undefined !== null)."""
+    c = clone(CHAIN)
+    rej = next(r for r in c if r["decision"] == "reject")
+    del rej["applied"]
+    assert "REJECT_APPLIED" in codes(replay_against_envelope(c, ENVELOPE))
+
+
+def test_authority_that_is_not_an_object_gates_nothing():
+    """The reference reads envelope.authority?.required_for; a list has none."""
+    c = [dict(clone(CHAIN[0]), authority=None)]
+    assert audit_authority(c, {**ENVELOPE, "authority": ["motion"]}) == []
+    assert audit_authority(c, {**ENVELOPE, "authority": "motion"}) == []
+
+
+# ── Mirrors RobotRegistryFoundation/rcan-spec#225 (reference verifier checks) ──
+
+
+def _replay_codes(chain: list[dict[str, Any]], env: dict[str, Any] = ENVELOPE) -> list[str]:
+    return [f"{f.code}:{f.field}" if f.field else f.code for f in replay_against_envelope(chain, env)]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda c: c[1].pop("seq"),
+        lambda c: c[1].__setitem__("seq", "1"),
+        lambda c: c[0].__setitem__("seq", -1),
+        lambda c: c[1].__setitem__("seq", 1.5),
+        lambda c: c.__setitem__(1, []),
+    ],
+    ids=["seq missing", "seq a string", "seq negative", "seq a fraction", "record not an object"],
+)
+def test_malformed_records_raise_before_anything_is_judged(mutate: Any) -> None:
+    c = clone(CHAIN)
+    mutate(c)
+    with pytest.raises(TypeError):
+        verify_chain(c)
+    with pytest.raises(TypeError):
+        audit_authority(c, ENVELOPE)
+    with pytest.raises(TypeError):
+        replay_against_envelope(c, ENVELOPE)
+
+
+def test_verify_chain_needs_string_prev_and_hash() -> None:
+    c = clone(CHAIN)
+    c[2]["hash"] = 7
+    with pytest.raises(TypeError):
+        verify_chain(c)
+
+
+def test_authority_and_principal_are_non_empty_strings() -> None:
+    rec = clone(CHAIN[0])
+    assert codes(audit_authority([dict(rec, authority=5)], ENVELOPE)) == ["NO_AUTHORITY"]
+    assert codes(audit_authority([dict(rec, principal=True)], ENVELOPE)) == ["NO_PRINCIPAL"]
+
+
+def test_only_string_entries_of_a_list_required_for_gate() -> None:
+    c = [dict(clone(CHAIN[0]), authority=None)]
+    assert audit_authority(c, {**ENVELOPE, "authority": {"required_for": "motion"}}) == []
+    assert codes(audit_authority(c, {**ENVELOPE, "authority": {"required_for": [1, "motion"]}})) == [
+        "NO_AUTHORITY"
+    ]
+
+
+def _at(seq: int, drop: tuple[str, ...] = (), **patch: Any) -> list[dict[str, Any]]:
+    c = clone(CHAIN)
+    c[seq].update(patch)
+    for k in drop:
+        del c[seq][k]
+    return c
+
+
+def test_allow_that_changed_the_command_is_flagged() -> None:
+    applied = dict(CHAIN[0]["applied"], linear_mps=0.25)
+    assert _replay_codes(_at(0, applied=applied)) == ["ALLOW_MODIFIED"]
+
+
+def test_allow_equal_to_its_command_in_another_member_order_passes() -> None:
+    cmd = CHAIN[0]["cmd"]
+    reordered = {k: cmd[k] for k in reversed(list(cmd))}
+    assert _replay_codes(_at(0, applied=reordered)) == []
+
+
+def test_clamp_reject_and_stop_need_a_reason() -> None:
+    assert _replay_codes(_at(1, drop=("reason",))) == ["MISSING_REASON"]
+    assert _replay_codes(_at(2, reason="")) == ["MISSING_REASON"]
+    assert _replay_codes(_at(4, drop=("reason",))) == ["MISSING_REASON"]
+
+
+def test_allow_clamp_and_stop_must_apply_an_object() -> None:
+    assert _replay_codes(_at(0, applied=None)) == ["APPLIED_NOT_OBJECT"]
+    assert _replay_codes(_at(1, applied=[0.5])) == ["APPLIED_NOT_OBJECT"]
+    assert _replay_codes(_at(4, drop=("applied",))) == ["APPLIED_NOT_OBJECT"]
+
+
+def test_unknown_decision_is_flagged_not_judged_as_allow() -> None:
+    assert _replay_codes(_at(0, decision="permit")) == ["UNKNOWN_DECISION"]
+    assert _replay_codes(_at(0, decision=["allow"])) == ["UNKNOWN_DECISION"]
+
+
+def test_unknown_decision_detail_reads_like_the_reference() -> None:
+    """The reference writes JSON.stringify(rec.decision): null is null, absent is undefined."""
+
+    def detail(chain: list[dict[str, Any]]) -> str:
+        return next(f.detail for f in replay_against_envelope(chain, ENVELOPE) if f.code == "UNKNOWN_DECISION")
+
+    assert detail(_at(0, decision=None)) == "decision null is not allow, clamp, reject or stop"
+    assert detail(_at(0, drop=("decision",))) == "decision undefined is not allow, clamp, reject or stop"
+    assert detail(_at(0, decision={"z": 1, "a": 2})) == 'decision {"z":1,"a":2} is not allow, clamp, reject or stop'
+
+
+def _reenvelope(motion: dict[str, Any], workspace: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    env = {
+        **ENVELOPE,
+        "motion": {**ENVELOPE["motion"], **motion},
+        "workspace": {**ENVELOPE["workspace"], **workspace},
+    }
+    h = envelope_hash(env)
+    return env, [dict(r, envelope=h) for r in clone(CHAIN)]
+
+
+def test_bound_written_as_a_string_is_not_used() -> None:
+    env, c = _reenvelope({"max_speed_mps": "0.1"}, {})
+    assert _replay_codes(c, env) == []
+
+
+def test_two_point_keep_out_is_not_a_polygon() -> None:
+    env, c = _reenvelope({}, {"keep_out": [[[0, 1], [10, 1]]]})
+    assert _replay_codes(c, env) == []
+
+
+def test_unusable_target_and_speed_are_unchecked_not_judged() -> None:
+    c = clone(CHAIN)
+    c[1]["applied"]["target"] = ["99", 1]
+    assert _replay_codes(c) == ["UNCHECKED_FIELDS:target"]
+    c = clone(CHAIN)
+    c[1]["applied"]["linear_mps"] = "9"
+    assert _replay_codes(c) == ["UNCHECKED_FIELDS:linear_mps"]
+
+
+def test_unchecked_names_are_sorted_by_utf16_code_units() -> None:
+    c = clone(CHAIN)
+    c[1]["applied"].update({"": 1, "\U0001F600": 1, "gripper": 1, "B": 1})
+    assert _replay_codes(c) == [
+        "UNCHECKED_FIELDS:B",
+        "UNCHECKED_FIELDS:gripper",
+        "UNCHECKED_FIELDS:\U0001F600",
+        "UNCHECKED_FIELDS:",
+    ]

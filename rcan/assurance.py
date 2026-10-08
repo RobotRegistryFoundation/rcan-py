@@ -27,6 +27,7 @@ certification.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Optional, Sequence, TypedDict
@@ -143,11 +144,15 @@ class Envelope(TypedDict, total=False):
 
 @dataclass(frozen=True)
 class Finding:
-    """One verification finding. ``seq`` is None for chain-wide findings."""
+    """One verification finding. ``seq`` is None for chain-wide findings.
+
+    ``field`` names the member, for ``UNCHECKED_FIELDS`` only.
+    """
 
     seq: Optional[int]
     code: str
     detail: str
+    field: Optional[str] = None
 
 
 # ── Hashing ─────────────────────────────────────────────────────────────────
@@ -185,6 +190,29 @@ def append_record(
     return [*chain, rec]  # type: ignore[list-item]
 
 
+# ── Input shape ─────────────────────────────────────────────────────────────
+
+
+def _require_records(chain: Any, links: bool) -> None:
+    """The record shape every check relies on.
+
+    Records must be objects whose ``seq`` is a non-negative integer and, for
+    :func:`verify_chain`, whose ``prev`` and ``hash`` are strings. Without that
+    a finding means nothing (a missing seq used to give "expected seq NaN"), so
+    such input raises ``TypeError`` instead of being judged.
+    """
+    if not isinstance(chain, (list, tuple)):
+        raise TypeError("records: expected a list of gate_decision records")
+    for i, rec in enumerate(chain):
+        if not isinstance(rec, Mapping):
+            raise TypeError(f"records[{i}]: not an object")
+        seq = rec.get("seq")
+        if not (_is_number(seq) and _finite(seq) and seq == int(seq) and seq >= 0):
+            raise TypeError(f"records[{i}]: seq must be a non-negative integer")
+        if links and not (isinstance(rec.get("prev"), str) and isinstance(rec.get("hash"), str)):
+            raise TypeError(f"records[{i}]: prev and hash must be strings")
+
+
 # ── EV-08: chain verification ───────────────────────────────────────────────
 
 
@@ -198,6 +226,7 @@ def verify_chain(
     checkpoint, a registry, a second log). Callers that hold such an anchor
     pass it as ``expected_head``.
     """
+    _require_records(chain, links=True)
     findings: list[Finding] = []
     for i, rec in enumerate(chain):
         seq = rec.get("seq")
@@ -233,11 +262,19 @@ def audit_authority(
     """EV-07 (log half). Flag executed, authority-gated commands without attribution.
 
     An executed command (allow or clamp) whose kind the envelope lists in
-    ``authority.required_for`` must carry a principal and an authority. The
-    command kind is read from ``cmd.kind``; a command without a kind is treated
-    as ``"motion"``, the conservative reading.
+    ``authority.required_for`` must carry a principal and an authority, each a
+    non-empty string. The command kind is read from ``cmd.kind``; a command
+    without a kind is treated as ``"motion"``, the conservative reading. Only
+    string entries of a list ``required_for`` gate a kind.
     """
-    gated = set((envelope.get("authority") or {}).get("required_for") or [])
+    _require_records(chain, links=False)
+    authority = envelope.get("authority")
+    required_for = authority.get("required_for") if isinstance(authority, Mapping) else None
+    gated = (
+        {k for k in required_for if isinstance(k, str)}
+        if isinstance(required_for, (list, tuple))
+        else set()
+    )
     findings: list[Finding] = []
     for rec in chain:
         if rec.get("decision") not in ("allow", "clamp"):
@@ -247,11 +284,11 @@ def audit_authority(
         kind = raw_kind if isinstance(raw_kind, str) else "motion"
         if kind not in gated:
             continue
-        if not rec.get("principal"):
+        if not _non_empty_str(rec.get("principal")):
             findings.append(
                 Finding(rec.get("seq"), "NO_PRINCIPAL", f"executed {kind} command has no principal")
             )
-        if not rec.get("authority"):
+        if not _non_empty_str(rec.get("authority")):
             findings.append(
                 Finding(rec.get("seq"), "NO_AUTHORITY", f"executed {kind} command has no authority")
             )
@@ -260,75 +297,114 @@ def audit_authority(
 
 # ── Replay against the envelope ─────────────────────────────────────────────
 
-_KNOWN_APPLIED_FIELDS = frozenset({"kind", "linear_mps", "angular_radps", "target"})
-
-
 def replay_against_envelope(
     chain: Sequence[Mapping[str, Any]], envelope: Mapping[str, Any]
 ) -> list[Finding]:
-    """Replay every applied command against the envelope.
+    """Replay every record against the envelope and the Appendix C decision table.
+
+    C.1.1 and C.6: ``allow`` applies the command unchanged; ``clamp``,
+    ``reject`` and ``stop`` carry a reason; ``reject`` applies ``null``; the
+    others apply an object.
 
     Understands the illustrative command shape used in Appendix C:
-    ``{linear_mps, angular_radps, target: [x, y]}``. Fields it does not
-    understand are not judged, and the replay says so by returning
-    ``UNCHECKED_FIELDS`` once per field name, so silence is never read as a pass.
+    ``{kind, linear_mps, angular_radps, target: [x, y]}``. A bound, polygon or
+    target is used only when it has the type replay needs (a number; three or
+    more points; two finite numbers). Members of ``applied`` that replay cannot
+    judge, because the name is unknown or the value unusable, are reported as
+    ``UNCHECKED_FIELDS`` once per name, sorted by UTF-16 code units, so
+    silence is never read as a pass.
     """
+    _require_records(chain, links=False)
     findings: list[Finding] = []
     env_hash = envelope_hash(envelope)
-    unchecked: dict[str, None] = {}  # insertion-ordered set
-    motion = envelope.get("motion") or {}
-    workspace = envelope.get("workspace") or {}
-    max_v = motion.get("max_speed_mps")
-    max_w = motion.get("max_turn_radps")
-    keep_in = workspace.get("keep_in")
-    keep_out = workspace.get("keep_out") or []
+    unchecked: set[str] = set()
+    motion = envelope.get("motion")
+    motion = motion if isinstance(motion, Mapping) else {}
+    workspace = envelope.get("workspace")
+    workspace = workspace if isinstance(workspace, Mapping) else {}
+    max_v = motion.get("max_speed_mps") if _is_number(motion.get("max_speed_mps")) else None
+    max_w = motion.get("max_turn_radps") if _is_number(motion.get("max_turn_radps")) else None
+    keep_in = workspace.get("keep_in") if _is_polygon(workspace.get("keep_in")) else None
+    keep_out_raw = workspace.get("keep_out")
+    keep_out = (
+        [z for z in keep_out_raw if _is_polygon(z)] if isinstance(keep_out_raw, (list, tuple)) else []
+    )
 
     for rec in chain:
         seq = rec.get("seq")
+        decision = rec.get("decision")
         if rec.get("envelope") != env_hash:
             findings.append(
                 Finding(seq, "ENVELOPE_MISMATCH", "record was decided under a different envelope")
             )
-        if rec.get("decision") == "reject":
-            if rec.get("applied") is not None:
-                findings.append(Finding(seq, "REJECT_APPLIED", "reject must apply nothing"))
+        if not (isinstance(decision, str) and decision in DECISIONS):
+            findings.append(
+                Finding(
+                    seq,
+                    "UNKNOWN_DECISION",
+                    f"decision {_stringify_member(rec, 'decision')} is not allow, clamp, reject or stop",
+                )
+            )
             continue
         applied = rec.get("applied")
-        a: Mapping[str, Any] = applied if isinstance(applied, Mapping) else {}
-        for k in a:
-            if k not in _KNOWN_APPLIED_FIELDS:
-                unchecked.setdefault(k, None)
-        v = a.get("linear_mps") if _is_number(a.get("linear_mps")) else None
-        w = a.get("angular_radps") if _is_number(a.get("angular_radps")) else None
-
-        if rec.get("decision") == "stop":
-            if (v is not None and v != 0) or (w is not None and w != 0):
-                findings.append(
-                    Finding(seq, "STOP_WITH_MOTION", "stop applied a non-zero velocity")
+        if decision == "reject":
+            # A missing applied member is not the null that reject requires.
+            if "applied" not in rec or applied is not None:
+                findings.append(Finding(seq, "REJECT_APPLIED", "reject must apply null"))
+        elif not isinstance(applied, Mapping):
+            findings.append(Finding(seq, "APPLIED_NOT_OBJECT", f"{decision} must apply an object"))
+        else:
+            v = applied.get("linear_mps") if _is_number(applied.get("linear_mps")) else None
+            w = applied.get("angular_radps") if _is_number(applied.get("angular_radps")) else None
+            target = applied.get("target") if decision != "stop" and _is_point(applied.get("target")) else None
+            for k in applied:
+                judged = (
+                    k == "kind"
+                    or (k == "linear_mps" and v is not None)
+                    or (k == "angular_radps" and w is not None)
+                    or (k == "target" and target is not None)
                 )
-            continue
-        if v is not None and _is_number(max_v) and abs(v) > max_v:
-            findings.append(
-                Finding(seq, "SPEED_EXCEEDED", f"|{_js(v)}| > max_speed_mps {_js(max_v)}")
-            )
-        if w is not None and _is_number(max_w) and abs(w) > max_w:
-            findings.append(
-                Finding(seq, "TURN_EXCEEDED", f"|{_js(w)}| > max_turn_radps {_js(max_w)}")
-            )
-        target = a.get("target")
-        if isinstance(target, (list, tuple)) and len(target) == 2:
-            if keep_in and not _inside_polygon(target, keep_in):
-                findings.append(
-                    Finding(seq, "OUTSIDE_KEEP_IN", f"target {_js(target)} outside keep_in")
-                )
-            for zone in keep_out:
-                if _inside_polygon(target, zone):
+                if not judged:
+                    unchecked.add(k)
+            if decision == "stop":
+                if (v is not None and v != 0) or (w is not None and w != 0):
+                    findings.append(Finding(seq, "STOP_WITH_MOTION", "stop applied a non-zero velocity"))
+            else:
+                if v is not None and max_v is not None and abs(v) > max_v:
                     findings.append(
-                        Finding(seq, "INSIDE_KEEP_OUT", f"target {_js(target)} inside keep_out")
+                        Finding(seq, "SPEED_EXCEEDED", f"|{_js(v)}| > max_speed_mps {_js(max_v)}")
                     )
-    for k in unchecked:
+                if w is not None and max_w is not None and abs(w) > max_w:
+                    findings.append(
+                        Finding(seq, "TURN_EXCEEDED", f"|{_js(w)}| > max_turn_radps {_js(max_w)}")
+                    )
+                if target is not None:
+                    if keep_in is not None and not _inside_polygon(target, keep_in):
+                        findings.append(
+                            Finding(seq, "OUTSIDE_KEEP_IN", f"target {_js(target)} outside keep_in")
+                        )
+                    for zone in keep_out:
+                        if _inside_polygon(target, zone):
+                            findings.append(
+                                Finding(seq, "INSIDE_KEEP_OUT", f"target {_js(target)} inside keep_out")
+                            )
+                # A missing cmd counts as null.
+                if decision == "allow" and canonical_json({"v": applied}) != canonical_json(
+                    {"v": rec.get("cmd")}
+                ):
+                    findings.append(
+                        Finding(seq, "ALLOW_MODIFIED", "allow must apply the command unchanged")
+                    )
+        if decision != "allow" and not _non_empty_str(rec.get("reason")):
+            findings.append(Finding(seq, "MISSING_REASON", f"{decision} must give a reason"))
+    for k in sorted(unchecked, key=lambda name: name.encode("utf-16-be", "surrogatepass")):
         findings.append(
-            Finding(None, "UNCHECKED_FIELDS", f"applied.{k} is not judged by this reference replay")
+            Finding(
+                None,
+                "UNCHECKED_FIELDS",
+                f"applied.{k} is not judged by this reference replay",
+                field=k,
+            )
         )
     return findings
 
@@ -339,6 +415,44 @@ def replay_against_envelope(
 def _is_number(x: Any) -> bool:
     """JavaScript ``typeof x === "number"``, excluding Python bools."""
     return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _stringify_member(rec: Mapping[str, Any], key: str) -> str:
+    """``JSON.stringify(rec[key])`` as the reference writes it into a detail.
+
+    ``undefined`` when the member is absent and ``null`` when it is null;
+    object members keep their order (unlike :func:`_js`, which writes
+    canonical JSON).
+    """
+    if key not in rec:
+        return "undefined"
+    return json.dumps(rec[key], ensure_ascii=False, separators=(",", ":"))
+
+
+def _finite(x: Any) -> bool:
+    """Finite as a binary64 value (an int too large for a float is not)."""
+    try:
+        return math.isfinite(x)
+    except OverflowError:
+        return False
+
+
+def _is_point(x: Any) -> bool:
+    """Two finite numbers."""
+    return (
+        isinstance(x, (list, tuple))
+        and len(x) == 2
+        and all(_is_number(c) and _finite(c) for c in x)
+    )
+
+
+def _is_polygon(x: Any) -> bool:
+    """Three or more points."""
+    return isinstance(x, (list, tuple)) and len(x) >= 3 and all(_is_point(p) for p in x)
+
+
+def _non_empty_str(x: Any) -> bool:
+    return isinstance(x, str) and len(x) > 0
 
 
 def _js(value: Any) -> str:
