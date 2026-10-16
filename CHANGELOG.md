@@ -1,3 +1,30 @@
+## [3.7.0] - 2026-10-16
+
+### Added
+
+- `rcan.assurance`: optional recovery fields from rcan-spec#232 (Appendix C.1.3).
+  `Envelope.stop.safe_state`, `Envelope.recovery` (`on_reject`, `repeated_stops`,
+  `estop_reset`), `GateDecision.stop_kind` and `GateDecision.reason_returned`, with
+  `check_envelope_recovery` and `check_stop_fields` for the schema's conditional
+  rules. Not a full schema validation.
+- `BE_LEVELS` (`BE-1`, `BE-2`, `BE-3`), the level names schemas/envelope.json has
+  used since rcan-spec#226. `AssuranceLevel` accepts both; `ASSURANCE_LEVELS` keeps
+  its A1-A3 value.
+- `STOP_KINDS`, `ON_REJECT_BEHAVIOURS`.
+- A `LICENSE` file (MIT, as the package metadata already declared).
+
+### Fixed
+
+- `NodeClient.resolve()` fallback requested `{api_base}/api/v1/robots/{rrn}`, doubling
+  `/api/v1` on nodes whose `api_base` already ends in it (rcan.dev does). It now requests
+  `{api_base}/robots/{rrn}`, as the federation protocol defines.
+- README quickstarts call APIs that exist, and were checked against PyPI.
+
+### Changed
+
+- Test fixtures re-copied from rcan-spec master (BE levels; new legged-recovery
+  envelope and chain, estop-auto-restart invalid envelope).
+
 ## [3.6.0] — 2026-09-29
 
 ### Added
