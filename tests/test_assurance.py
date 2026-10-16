@@ -4,10 +4,9 @@ Mirrors rcan-spec ``tests/assurance/evidence-chain.test.ts``. These tests prove
 the verification procedure catches what it claims to catch. They test the
 method and the fixtures, not any robot or runtime.
 
-Fixture origin: copied verbatim from RobotRegistryFoundation/rcan-spec, branch
-``align/bounded-embodiment`` (PR #221, commit 34ad1ca), paths
-``fixtures/envelope/*.json`` and ``fixtures/gate-decision/rover-chain.valid.json``,
-into ``tests/fixtures/assurance/``. The chain's ``hash`` and ``envelope`` values
+Fixture origin: copied verbatim from RobotRegistryFoundation/rcan-spec master
+(commit fe35d53, after PR #232), paths ``fixtures/envelope/*.json`` and
+``fixtures/gate-decision/*.json``, into ``tests/fixtures/assurance/``. The chain's ``hash`` and ``envelope`` values
 were produced by the TypeScript reference verifier
 (``scripts/assurance/evidence-chain.ts``), so recomputing them here is the
 cross-language parity check. ``tests/fixtures/canonical-json-v1.json`` was
@@ -26,11 +25,15 @@ import pytest
 
 from rcan.assurance import (
     ASSURANCE_LEVELS,
+    BE_LEVELS,
     DECISIONS,
     GENESIS_PREV,
+    STOP_KINDS,
     Finding,
     append_record,
     audit_authority,
+    check_envelope_recovery,
+    check_stop_fields,
     envelope_hash,
     record_hash,
     replay_against_envelope,
@@ -112,8 +115,10 @@ def test_envelope_hash_ignores_signature() -> None:
 
 def test_constants() -> None:
     assert ASSURANCE_LEVELS == ("A1", "A2", "A3")
+    assert BE_LEVELS == ("BE-1", "BE-2", "BE-3")
+    assert STOP_KINDS == ("protective", "repeated", "emergency")
     assert DECISIONS == ("allow", "clamp", "reject", "stop")
-    assert ENVELOPE["level"] in ASSURANCE_LEVELS
+    assert ENVELOPE["level"] in BE_LEVELS
     assert all(r["decision"] in DECISIONS for r in CHAIN)
 
 
@@ -321,6 +326,10 @@ def test_top_level_exports() -> None:
 
     for name in (
         "ASSURANCE_LEVELS",
+        "BE_LEVELS",
+        "STOP_KINDS",
+        "check_envelope_recovery",
+        "check_stop_fields",
         "GENESIS_PREV",
         "append_record",
         "audit_authority",
@@ -331,3 +340,113 @@ def test_top_level_exports() -> None:
     ):
         assert name in rcan.__all__
         assert getattr(rcan, name) is getattr(__import__("rcan.assurance").assurance, name)
+
+
+# ── Recovery fields (Appendix C.1.3, rcan-spec #232) ───────────────────────
+
+LEGGED: dict[str, Any] = _load(ASSURANCE / "envelope" / "legged-recovery.valid.json")
+RC: list[dict[str, Any]] = _load(ASSURANCE / "gate-decision" / "legged-recovery-chain.valid.json")
+ESTOP_AUTO: dict[str, Any] = _load(ASSURANCE / "envelope" / "estop-auto-restart.invalid.json")
+
+
+def test_recovery_chain_verifies_audits_and_replays_clean() -> None:
+    assert verify_chain(RC) == []
+    assert audit_authority(RC, LEGGED) == []
+    assert replay_against_envelope(RC, LEGGED) == []
+    assert all(r["envelope"] == envelope_hash(LEGGED) for r in RC)
+
+
+def test_recovery_fixtures_pass_the_recovery_checks() -> None:
+    assert check_envelope_recovery(LEGGED) == []
+    assert check_stop_fields(RC) == []
+    assert check_envelope_recovery(ENVELOPE) == []  # no recovery member at all
+    assert check_stop_fields(CHAIN) == []
+
+
+def test_estop_auto_restart_fixture_is_rejected() -> None:
+    assert codes(check_envelope_recovery(ESTOP_AUTO)) == ["ESTOP_RESET_NOT_MANUAL"]
+
+
+def test_escalates_after_the_declared_count_not_before() -> None:
+    n = LEGGED["recovery"]["repeated_stops"]["escalate_after_count"]
+    i = next(k for k, r in enumerate(RC) if r.get("stop_kind") == "repeated")
+    protective = [r for r in RC[:i] if r.get("stop_kind") == "protective"]
+    assert len(protective) == n
+    window_ms = LEGGED["recovery"]["repeated_stops"]["count_window_s"] * 1000
+    assert protective[n - 1]["t"] - protective[0]["t"] <= window_ms
+
+
+def test_optional_fields_are_covered_by_the_record_hash() -> None:
+    c = clone(RC)
+    c[3]["stop_kind"] = "emergency"
+    assert "HASH_MISMATCH" in codes(verify_chain(c))
+
+
+def test_stop_with_motion_still_flagged_with_a_stop_kind() -> None:
+    c = clone(RC)
+    c[3]["applied"]["linear_mps"] = 0.1
+    assert "STOP_WITH_MOTION" in codes(replay_against_envelope(c, LEGGED))
+
+
+def _first(chain: list[dict[str, Any]], decision: str) -> int:
+    return next(k for k, r in enumerate(chain) if r["decision"] == decision)
+
+
+def test_stop_kind_only_with_stop() -> None:
+    c = clone(RC)
+    k = _first(c, "allow")
+    c[k]["stop_kind"] = "protective"
+    found = check_stop_fields(c)
+    assert [(f.seq, f.code) for f in found] == [(c[k]["seq"], "STOP_KIND_WITHOUT_STOP")]
+
+
+def test_stop_kind_value_is_checked() -> None:
+    c = clone(RC)
+    k = next(i for i, r in enumerate(c) if "stop_kind" in r)
+    c[k]["stop_kind"] = "soft"
+    assert codes(check_stop_fields(c)) == ["BAD_STOP_KIND"]
+
+
+def test_reason_returned_not_with_allow_and_must_be_bool() -> None:
+    c = clone(RC)
+    k = _first(c, "allow")
+    c[k]["reason_returned"] = True
+    assert codes(check_stop_fields(c)) == ["REASON_RETURNED_WITH_ALLOW"]
+    c = clone(RC)
+    k = next(i for i, r in enumerate(c) if "reason_returned" in r)
+    c[k]["reason_returned"] = "yes"
+    assert codes(check_stop_fields(c)) == ["BAD_REASON_RETURNED"]
+
+
+@pytest.mark.parametrize(
+    "recovery, code",
+    [
+        ({"on_reject": "retry"}, "BAD_ON_REJECT"),
+        ({"repeated_stops": {}}, "BAD_REPEATED_STOPS"),
+        ({"repeated_stops": {"count_window_s": 60}}, "BAD_REPEATED_STOPS"),
+        ({"repeated_stops": {"escalate_after_count": 0}}, "BAD_REPEATED_STOPS"),
+        ({"repeated_stops": {"escalate_after_count": 2.5}}, "BAD_REPEATED_STOPS"),
+        ({"repeated_stops": {"escalate_after_count": True}}, "BAD_REPEATED_STOPS"),
+        ({"repeated_stops": {"escalate_after_s": 0}}, "BAD_REPEATED_STOPS"),
+        ({"repeated_stops": {"escalate_after_s": 10, "extra": 1}}, "BAD_REPEATED_STOPS"),
+        ({"estop_reset": "automatic"}, "ESTOP_RESET_NOT_MANUAL"),
+        ({"resume": "auto"}, "BAD_RECOVERY"),
+    ],
+)
+def test_recovery_rules(recovery: dict[str, Any], code: str) -> None:
+    env = {**clone(LEGGED), "recovery": recovery}
+    assert codes(check_envelope_recovery(env)) == [code]
+
+
+def test_repeated_stops_either_trigger_is_enough() -> None:
+    for rs in ({"escalate_after_count": 3}, {"escalate_after_s": 120.0}):
+        env = {**clone(LEGGED), "recovery": {"repeated_stops": rs}}
+        assert check_envelope_recovery(env) == []
+
+
+def test_safe_state_must_be_non_empty() -> None:
+    env = clone(LEGGED)
+    env["stop"]["safe_state"] = ""
+    assert codes(check_envelope_recovery(env)) == ["BAD_SAFE_STATE"]
+    del env["stop"]["safe_state"]
+    assert check_envelope_recovery(env) == []

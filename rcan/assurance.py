@@ -19,9 +19,13 @@ so the two verifiers agree on the same chain.
 These helpers check evidence. They do not check a robot, and a passing chain
 says nothing about whether the machine behaved as the log claims.
 
-Physical assurance levels A1-A3 are a separate axis from RCAN protocol
-conformance levels L1-L4. An L3 robot can be A1. Conformance is not
-certification.
+Physical assurance levels BE-1 to BE-3 (named A1-A3 before rcan-spec #226)
+are a separate axis from RCAN protocol conformance levels L1-L4. An L3 robot
+can be BE-1. Conformance is not certification.
+
+RCAN is one open implementation of the Bounded Embodiment property. The
+property and its vendor-neutral method do not depend on RCAN:
+https://github.com/RobotRegistryFoundation/bounded-embodiment
 """
 
 from __future__ import annotations
@@ -35,15 +39,24 @@ from rcan.encoding import canonical_json
 
 __all__ = [
     "ASSURANCE_LEVELS",
+    "BE_LEVELS",
     "DECISIONS",
     "GENESIS_PREV",
+    "ON_REJECT_BEHAVIOURS",
+    "STOP_KINDS",
     "AssuranceLevel",
     "Decision",
     "Envelope",
+    "EnvelopeRecovery",
+    "EnvelopeRepeatedStops",
+    "EnvelopeStop",
     "Finding",
     "GateDecision",
+    "StopKind",
     "append_record",
     "audit_authority",
+    "check_envelope_recovery",
+    "check_stop_fields",
     "envelope_hash",
     "record_hash",
     "replay_against_envelope",
@@ -54,17 +67,33 @@ __all__ = [
 #: ``prev`` of the first record in a chain: ``sha256:`` followed by 64 zeros.
 GENESIS_PREV: str = "sha256:" + "0" * 64
 
-AssuranceLevel = Literal["A1", "A2", "A3"]
+AssuranceLevel = Literal["BE-1", "BE-2", "BE-3", "A1", "A2", "A3"]
 
-#: Physical assurance levels (A1 Declared, A2 Enforced, A3 Assured).
-#: Independent of RCAN protocol conformance levels L1-L4. Self-declared unless
-#: accompanied by third-party evidence.
+#: Physical assurance levels as schemas/envelope.json names them since
+#: rcan-spec #226: BE-1 Declared, BE-2 Enforced, BE-3 Assured (BE for Bounded
+#: Embodiment). Independent of RCAN protocol conformance levels L1-L4.
+#: Self-declared unless accompanied by third-party evidence.
+BE_LEVELS: tuple[str, ...] = ("BE-1", "BE-2", "BE-3")
+
+#: The earlier names of the same levels (A1 Declared, A2 Enforced, A3
+#: Assured). Kept unchanged for compatibility; the current schema accepts only
+#: :data:`BE_LEVELS` in ``envelope.level``.
 ASSURANCE_LEVELS: tuple[str, ...] = ("A1", "A2", "A3")
 
 Decision = Literal["allow", "clamp", "reject", "stop"]
 
 #: The four gate decisions, in the order Appendix C lists them.
 DECISIONS: tuple[str, ...] = ("allow", "clamp", "reject", "stop")
+
+StopKind = Literal["protective", "repeated", "emergency"]
+
+#: ``gate_decision.stop_kind`` values (Appendix C.1.3). Optional, and only with
+#: decision ``stop``. protective resumes once the condition clears and sensor
+#: state is fresh; repeated and emergency need a person.
+STOP_KINDS: tuple[str, ...] = ("protective", "repeated", "emergency")
+
+#: ``envelope.recovery.on_reject`` values (Appendix C.1.3).
+ON_REJECT_BEHAVIOURS: tuple[str, ...] = ("hold", "slow_down")
 
 
 # ── Typed structures (shapes of schemas/envelope.json and gate-decision.json) ──
@@ -89,9 +118,16 @@ class _GateDecisionRequired(TypedDict):
 
 
 class GateDecision(_GateDecisionRequired, total=False):
-    """One ``gate_decision`` evidence record (schemas/gate-decision.json)."""
+    """One ``gate_decision`` evidence record (schemas/gate-decision.json).
+
+    ``stop_kind`` (only with decision ``stop``) and ``reason_returned`` (not
+    with ``allow``) are optional. When present they are covered by ``hash``
+    like every other member. :func:`check_stop_fields` checks their rules.
+    """
 
     reason: str
+    stop_kind: StopKind
+    reason_returned: bool
 
 
 class EnvelopeMachine(TypedDict, total=False):
@@ -112,6 +148,38 @@ class EnvelopeMotion(TypedDict, total=False):
     max_turn_radps: float
     max_accel_mps2: float
     max_joint_speed_radps: float
+
+
+class EnvelopeStop(TypedDict, total=False):
+    category: Literal[0, 1, 2]
+    max_time_ms: int
+    max_distance_m: float
+    #: Optional. The state the machine ends in after a stop, declared by the
+    #: integrator, because stopped is not always safe (Appendix C.1.3). Free
+    #: text in v0.1, for example ``stop_in_place``, ``hold``, ``set_down`` or
+    #: ``controlled_crouch_then_power_off``.
+    safe_state: str
+
+
+class EnvelopeRepeatedStops(TypedDict, total=False):
+    """When repeated stops escalate to a state that needs a person.
+
+    At least one of ``escalate_after_count`` and ``escalate_after_s``.
+    """
+
+    escalate_after_count: int
+    count_window_s: float
+    escalate_after_s: float
+
+
+class EnvelopeRecovery(TypedDict, total=False):
+    """Optional. What happens after the gate says no (Appendix C.1.3)."""
+
+    on_reject: Literal["hold", "slow_down"]
+    repeated_stops: EnvelopeRepeatedStops
+    #: Only ``"manual"`` is valid: reset is done by a person, and reset alone
+    #: never restarts motion.
+    estop_reset: Literal["manual"]
 
 
 class EnvelopeAuthority(TypedDict, total=False):
@@ -135,7 +203,8 @@ class Envelope(TypedDict, total=False):
     force: dict[str, float]
     proximity: list[dict[str, Any]]
     sensing: dict[str, int]
-    stop: dict[str, Any]
+    stop: EnvelopeStop
+    recovery: EnvelopeRecovery
     heartbeat: dict[str, Any]
     authority: EnvelopeAuthority
     signature: str
@@ -330,6 +399,121 @@ def replay_against_envelope(
         findings.append(
             Finding(None, "UNCHECKED_FIELDS", f"applied.{k} is not judged by this reference replay")
         )
+    return findings
+
+
+# ── Recovery fields (Appendix C.1.3) ───────────────────────────────────────
+#
+# The conditional rules schemas/envelope.json and gate-decision.json place on
+# the optional recovery fields added in rcan-spec #232. These are not a full
+# schema validation: they check only those fields, so a caller that already
+# validates against the JSON Schema does not need them.
+
+_RECOVERY_KEYS = frozenset({"on_reject", "repeated_stops", "estop_reset"})
+_REPEATED_STOPS_KEYS = frozenset({"escalate_after_count", "count_window_s", "escalate_after_s"})
+
+
+def check_envelope_recovery(envelope: Mapping[str, Any]) -> list[Finding]:
+    """Check ``stop.safe_state`` and ``recovery`` against schemas/envelope.json.
+
+    Both are optional; an envelope without them returns no findings. Codes:
+    ``BAD_SAFE_STATE``, ``BAD_RECOVERY``, ``BAD_ON_REJECT``,
+    ``BAD_REPEATED_STOPS`` and ``ESTOP_RESET_NOT_MANUAL``. All findings are
+    envelope-wide, so ``seq`` is None.
+    """
+    findings: list[Finding] = []
+
+    def bad(code: str, detail: str) -> None:
+        findings.append(Finding(None, code, detail))
+
+    stop = envelope.get("stop")
+    if isinstance(stop, Mapping) and "safe_state" in stop:
+        ss = stop["safe_state"]
+        if not (isinstance(ss, str) and len(ss) >= 1):
+            bad("BAD_SAFE_STATE", "stop.safe_state must be a non-empty string")
+
+    if "recovery" not in envelope:
+        return findings
+    rec = envelope["recovery"]
+    if not isinstance(rec, Mapping):
+        bad("BAD_RECOVERY", "recovery must be an object")
+        return findings
+    for k in sorted(set(rec) - _RECOVERY_KEYS):
+        bad("BAD_RECOVERY", f"recovery.{k} is not a recovery member")
+
+    if "on_reject" in rec and rec["on_reject"] not in ON_REJECT_BEHAVIOURS:
+        bad("BAD_ON_REJECT", "recovery.on_reject must be hold or slow_down")
+
+    if "estop_reset" in rec and rec["estop_reset"] != "manual":
+        bad(
+            "ESTOP_RESET_NOT_MANUAL",
+            "recovery.estop_reset must be manual: reset alone never restarts motion",
+        )
+
+    if "repeated_stops" in rec:
+        rs = rec["repeated_stops"]
+        if not isinstance(rs, Mapping):
+            bad("BAD_REPEATED_STOPS", "recovery.repeated_stops must be an object")
+            return findings
+        for k in sorted(set(rs) - _REPEATED_STOPS_KEYS):
+            bad("BAD_REPEATED_STOPS", f"recovery.repeated_stops.{k} is not a member")
+        if "escalate_after_count" not in rs and "escalate_after_s" not in rs:
+            bad(
+                "BAD_REPEATED_STOPS",
+                "recovery.repeated_stops needs escalate_after_count, escalate_after_s or both",
+            )
+        if "escalate_after_count" in rs:
+            n = rs["escalate_after_count"]
+            if not (_is_number(n) and math.isfinite(n) and n == int(n) and n >= 1):
+                bad(
+                    "BAD_REPEATED_STOPS",
+                    "recovery.repeated_stops.escalate_after_count must be an integer >= 1",
+                )
+        for k in ("count_window_s", "escalate_after_s"):
+            if k in rs:
+                v = rs[k]
+                if not (_is_number(v) and math.isfinite(v) and v > 0):
+                    bad("BAD_REPEATED_STOPS", f"recovery.repeated_stops.{k} must be a number > 0")
+    return findings
+
+
+def check_stop_fields(chain: Sequence[Mapping[str, Any]]) -> list[Finding]:
+    """Check ``stop_kind`` and ``reason_returned`` against schemas/gate-decision.json.
+
+    ``stop_kind`` must be one of :data:`STOP_KINDS` and appears only with
+    decision ``stop``. ``reason_returned`` must be a boolean and does not
+    appear with decision ``allow``. Records without these members return no
+    findings. Codes: ``BAD_STOP_KIND``, ``STOP_KIND_WITHOUT_STOP``,
+    ``BAD_REASON_RETURNED`` and ``REASON_RETURNED_WITH_ALLOW``.
+    """
+    findings: list[Finding] = []
+    for rec in chain:
+        if not isinstance(rec, Mapping):
+            continue
+        seq = rec.get("seq")
+        decision = rec.get("decision")
+        if "stop_kind" in rec:
+            if rec["stop_kind"] not in STOP_KINDS:
+                findings.append(
+                    Finding(seq, "BAD_STOP_KIND", "stop_kind must be protective, repeated or emergency")
+                )
+            if decision != "stop":
+                findings.append(
+                    Finding(seq, "STOP_KIND_WITHOUT_STOP", "stop_kind is only valid with decision stop")
+                )
+        if "reason_returned" in rec:
+            if not isinstance(rec["reason_returned"], bool):
+                findings.append(
+                    Finding(seq, "BAD_REASON_RETURNED", "reason_returned must be a boolean")
+                )
+            if decision == "allow":
+                findings.append(
+                    Finding(
+                        seq,
+                        "REASON_RETURNED_WITH_ALLOW",
+                        "reason_returned is not valid with decision allow",
+                    )
+                )
     return findings
 
 

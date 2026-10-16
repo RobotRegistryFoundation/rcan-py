@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [{name = "Craig Merry", email = "cmmerry@ucdavis.edu"}]
-keywords = ["robotics", "rcan", "protocol", "ai-safety", "embodied-ai"]
+keywords = ["robotics", "rcan", "protocol", "ai-safety", "embodied-ai", "robot-safety", "physical-assurance", "bounded-embodiment"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -19,6 +19,9 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: System :: Hardware",
 ]
@@ -36,8 +39,10 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "cryptography>=42.0",
 [project.urls]
 Homepage = "https://rcan.dev"
 Repository = "https://github.com/RobotRegistryFoundation/rcan-py"
-Documentation = "https://rcan.dev/docs"
+Documentation = "https://docs.rcan.dev"
 Specification = "https://rcan.dev/spec"
+Changelog = "https://github.com/RobotRegistryFoundation/rcan-py/blob/main/CHANGELOG.md"
+Issues = "https://github.com/RobotRegistryFoundation/rcan-py/issues"
 
 [project.scripts]
 rcan-validate = "rcan.validate:main"
