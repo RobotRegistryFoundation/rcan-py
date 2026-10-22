@@ -72,9 +72,13 @@ from rcan.hybrid import sign_body, verify_body
 # (GateDecision, Envelope, Finding, Decision) live in rcan.assurance.
 from rcan.assurance import (
     ASSURANCE_LEVELS,
+    BE_LEVELS,
     GENESIS_PREV,
+    STOP_KINDS,
     append_record,
     audit_authority,
+    check_envelope_recovery,
+    check_stop_fields,
     envelope_hash,
     record_hash,
     replay_against_envelope,
@@ -277,7 +281,7 @@ from rcan.types import RCANAgentConfig, RCANConfig, RCANMessageEnvelope, RCANMet
 from rcan.version import SPEC_VERSION, SUPPORTED_FEATURES
 from rcan.watermark import compute_watermark_token, verify_token_format, verify_via_api
 
-__version__ = "3.6.0"
+__version__ = "3.7.0"
 __spec_version__ = "3.2"
 
 __all__ = [
@@ -313,9 +317,13 @@ __all__ = [
     "verify_body",
     # v3.6 — Appendix C physical assurance (informative)
     "ASSURANCE_LEVELS",
+    "BE_LEVELS",
     "GENESIS_PREV",
+    "STOP_KINDS",
     "append_record",
     "audit_authority",
+    "check_envelope_recovery",
+    "check_stop_fields",
     "envelope_hash",
     "record_hash",
     "replay_against_envelope",
