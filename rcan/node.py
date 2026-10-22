@@ -238,8 +238,10 @@ class NodeClient:
 
         # Root returned 404 — find the authoritative node and ask directly
         auth_node = self.discover(rrn)
-        api_base = auth_node.get("api_base", self.root_url).rstrip("/")
-        robot_url = f"{api_base}/api/v1/robots/{urllib.parse.quote(rrn, safe='')}"
+        # api_base is the registry API's base URL, endpoints included (federation protocol:
+        # GET {api_base}/robots/{rrn}); e.g. rcan.dev publishes "https://rcan.dev/api/v1".
+        api_base = (auth_node.get("api_base") or f"{self.root_url}/api/v1").rstrip("/")
+        robot_url = f"{api_base}/robots/{urllib.parse.quote(rrn, safe='')}"
         robot = _http_get_optional(robot_url, self.timeout)
         if robot is None:
             raise RCANNodeError(

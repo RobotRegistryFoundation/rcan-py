@@ -323,13 +323,37 @@ class TestResolve:
                 raise urllib.error.HTTPError(url, 404, "Not Found", None, None)  # type: ignore[arg-type]
             if "/api/v1/nodes?" in url:
                 return _mock_urlopen(nodes_payload)
-            if "/api/v1/robots/" in url:
+            if url == "https://bd.rcan.dev/robots/RRN-BD-00000001":
                 return _mock_urlopen(SAMPLE_ROBOT)
             return _mock_urlopen({})
 
         mock_urlopen.side_effect = side_effect
         robot = self.client.resolve("RRN-BD-00000001")
         assert robot["rrn"] == "RRN-BD-00000001"
+
+    @patch("urllib.request.urlopen")
+    def test_resolve_fallback_uses_api_base_as_given(self, mock_urlopen):
+        """{api_base}/robots/{rrn}, without adding a second /api/v1 (rcan.dev's api_base ends in /api/v1)."""
+        import urllib.error
+
+        manifest = dict(VALID_MANIFEST, api_base="https://bd.rcan.dev/api/v1")
+        seen = []
+
+        def side_effect(req, timeout=None):
+            url = req.full_url
+            seen.append(url)
+            if "/api/v1/resolve/" in url:
+                raise urllib.error.HTTPError(url, 404, "Not Found", None, None)  # type: ignore[arg-type]
+            if "/api/v1/nodes?" in url:
+                return _mock_urlopen({"nodes": [manifest]})
+            if url == "https://bd.rcan.dev/api/v1/robots/RRN-BD-00000001":
+                return _mock_urlopen(SAMPLE_ROBOT)
+            raise urllib.error.HTTPError(url, 404, "Not Found", None, None)  # type: ignore[arg-type]
+
+        mock_urlopen.side_effect = side_effect
+        robot = self.client.resolve("RRN-BD-00000001")
+        assert robot["rrn"] == "RRN-BD-00000001"
+        assert not any("/api/v1/api/v1/" in u for u in seen)
 
     @patch("urllib.request.urlopen")
     def test_resolve_not_found_raises(self, mock_urlopen):
