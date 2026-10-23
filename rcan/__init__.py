@@ -148,6 +148,7 @@ from rcan.exceptions import (
     IdentityError,
     QoSAckTimeoutError,
     RCANAddressError,
+    RCANEncodingError,
     RCANError,
     RCANGateError,
     RCANNodeError,
@@ -343,6 +344,7 @@ __all__ = [
     # Exceptions — original
     "RCANError",
     "RCANAddressError",
+    "RCANEncodingError",
     "RCANGateError",
     "RCANNodeError",
     "RCANRegistryError",

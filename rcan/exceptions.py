@@ -35,6 +35,20 @@ class RCANSignatureError(RCANError):
     """RCAN message signature is missing, invalid, or from an untrusted key."""
 
 
+class RCANEncodingError(RCANError, ValueError):
+    """A value has no canonical JSON form (RFC 8785).
+
+    ``code`` is ``"non_finite_number"`` for NaN or Infinity, or
+    ``"invalid_string"`` for a string or object key with an unpaired surrogate.
+    Also a :class:`ValueError`, which is what :func:`json.dumps` raises for
+    NaN when ``allow_nan=False``.
+    """
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class RCANRegistryError(RCANError):
     """Error communicating with the RCAN robot registry."""
 
